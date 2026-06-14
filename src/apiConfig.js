@@ -45,6 +45,39 @@ export const decodeJwt = (token) => {
   }
 };
 
+export const isAdminToken = (token) => {
+  const payload = decodeJwt(token);
+  if (!payload) return false;
+
+  const adminClaimValues = [
+    payload.role,
+    payload.roles,
+    payload.authorities,
+    payload.authority,
+    payload.admin,
+    payload.isAdmin,
+    payload.userRole,
+    payload.user_roles,
+    payload.roleName,
+  ];
+
+  return adminClaimValues.some((claim) => {
+    if (typeof claim === "boolean") {
+      return claim === true;
+    }
+
+    if (typeof claim === "string") {
+      return /admin/i.test(claim);
+    }
+
+    if (Array.isArray(claim)) {
+      return claim.some((entry) => typeof entry === "string" && /admin/i.test(entry));
+    }
+
+    return false;
+  });
+};
+
 export const resolveUserProfileEndpoints = (username, token) => {
   const endpoints = [];
 
