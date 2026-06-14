@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "../apiConfig";
+import { API_BASE_URL, getAuthHeaders } from "../apiConfig";
 
 export default function DailyTrackerPage() {
   const [records, setRecords] = useState([]);
@@ -9,7 +9,10 @@ export default function DailyTrackerPage() {
   const [showForm, setShowForm] = useState(false);
   const [submitMessage, setSubmitMessage] = useState("");
   const [editMessage, setEditMessage] = useState("");
+  const [deleteMessage, setDeleteMessage] = useState("");
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const [customUserId, setCustomUserId] = useState("");
+  const [viewingUserId, setViewingUserId] = useState("");
 
   const [formData, setFormData] = useState({
     date: "",
@@ -70,6 +73,51 @@ export default function DailyTrackerPage() {
       fiber: "",
     });
     setEditMessage("");
+    setDeleteMessage("");
+  };
+
+  const handleDeleteRecord = async (record) => {
+    const confirmed = window.confirm(
+      "Delete this tracker entry? This action cannot be undone."
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const username = localStorage.getItem("username");
+      const targetUser = viewingUserId || username;
+      const recordDate = record?.date || record?.recordDate;
+
+      if (!token || !username || !recordDate) {
+        setDeleteMessage("❌ Missing required data. Please reload the page.");
+        return;
+      }
+
+      // Format date as yyyy-MM-dd
+      const date = new Date(recordDate);
+      const formattedDate = date.toISOString().split("T")[0];
+
+      const response = await fetch(
+        `${API_BASE_URL}/deleteTracker/${targetUser}/${formattedDate}`,
+        {
+          method: "DELETE",
+          headers: getAuthHeaders(token),
+        }
+      );
+
+      const responseText = await response.text();
+
+      if (response.ok) {
+        setDeleteMessage("✅ Record deleted successfully");
+        fetchRecords(viewingUserId);
+      } else {
+        setDeleteMessage(responseText || "Unable to delete record");
+      }
+    } catch (err) {
+      console.error(err);
+      setDeleteMessage("❌ Server error while deleting record");
+    }
   };
 
   const handleAddRecord = async (e) => {
@@ -135,9 +183,10 @@ export default function DailyTrackerPage() {
 
     const token = localStorage.getItem("token");
     const username = localStorage.getItem("username");
+    const targetUser = viewingUserId || username;
 
     if (!token || !username || !selectedRecord) {
-      navigate("/");
+      setEditMessage("❌ Missing required data");
       return;
     }
 
@@ -155,7 +204,7 @@ export default function DailyTrackerPage() {
       };
 
       const response = await fetch(
-        `${API_BASE_URL}/editDailyProgress/${username}`,
+        `${API_BASE_URL}/editDailyProgress/${targetUser}`,
         {
           method: "PUT",
           headers: {
@@ -171,7 +220,7 @@ export default function DailyTrackerPage() {
       if (response.status === 201) {
         setEditMessage("✅ Record has been changed successfully");
         setSelectedRecord(null);
-        fetchRecords();
+        fetchRecords(viewingUserId);
       } else if (response.status === 409) {
         setEditMessage(responseText || "Record cannot be Edited or does not exists");
       } else {
@@ -183,18 +232,19 @@ export default function DailyTrackerPage() {
     }
   };
 
-  const fetchRecords = async () => {
+  const fetchRecords = async (userId = null) => {
     const token = localStorage.getItem("token");
-    const username = localStorage.getItem("username");
+    const loggedInUsername = localStorage.getItem("username");
+    const userToFetch = userId || loggedInUsername;
 
-    if (!token || !username) {
+    if (!token || !loggedInUsername) {
       navigate("/");
       return;
     }
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/DailyTracker/${username}`,
+        `${API_BASE_URL}/DailyTracker/${userToFetch}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -208,12 +258,34 @@ export default function DailyTrackerPage() {
 
       const data = await response.json();
       setRecords(data);
+      if (userId) {
+        setViewingUserId(userId);
+      } else {
+        setViewingUserId("");
+      }
     } catch (err) {
       console.error(err);
       setError("Unable to load daily tracker data.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearchUser = async (e) => {
+    e.preventDefault();
+    if (!customUserId.trim()) {
+      setError("Please enter a username");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    await fetchRecords(customUserId);
+  };
+
+  const handleResetToMyData = () => {
+    setCustomUserId("");
+    setLoading(true);
+    fetchRecords();
   };
 
   const formatDateString = (dateValue) => {
@@ -271,6 +343,42 @@ export default function DailyTrackerPage() {
           >
             {showForm ? "Close Form" : "+ Add Record"}
           </button>
+        </div>
+
+        {/* Admin Search Section */}
+        <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 mb-8">
+          <h2 className="text-white text-xl font-bold mb-4">
+            Search User Tracker (Admin)
+          </h2>
+          <form onSubmit={handleSearchUser} className="flex flex-col md:flex-row gap-3">
+            <input
+              type="text"
+              placeholder="Enter username to view their tracker data"
+              value={customUserId}
+              onChange={(e) => setCustomUserId(e.target.value)}
+              className="flex-1 rounded-xl px-4 py-3 bg-white/90"
+            />
+            <button
+              type="submit"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-semibold transition"
+            >
+              Search
+            </button>
+            {viewingUserId && (
+              <button
+                type="button"
+                onClick={handleResetToMyData}
+                className="bg-slate-600 hover:bg-slate-700 text-white px-6 py-3 rounded-xl font-semibold transition"
+              >
+                View My Data
+              </button>
+            )}
+          </form>
+          {viewingUserId && (
+            <p className="text-indigo-300 mt-3 text-sm">
+              Currently viewing tracker data for: <span className="font-semibold">{viewingUserId}</span>
+            </p>
+          )}
         </div>
 
         {/* Add Form */}
@@ -421,6 +529,11 @@ export default function DailyTrackerPage() {
                 {editMessage}
               </p>
             )}
+            {deleteMessage && (
+              <p className="mt-4 text-center text-white">
+                {deleteMessage}
+              </p>
+            )}
           </div>
         )}
 
@@ -448,10 +561,26 @@ export default function DailyTrackerPage() {
                   key={index}
                   className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-xl hover:scale-[1.02] transition"
                 >
-                  <div className="mb-5">
+                  <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <h2 className="text-xl font-bold text-white">
                       📅 {dateString}
                     </h2>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => startEdit(record)}
+                        className="bg-yellow-500 hover:bg-yellow-600 text-slate-900 px-4 py-2 rounded-xl font-semibold"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRecord(record)}
+                        className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl font-semibold"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-3">
@@ -484,15 +613,6 @@ export default function DailyTrackerPage() {
                     </div>
                   </div>
 
-                  <div className="mt-6 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => startEdit(record)}
-                      className="bg-yellow-500 hover:bg-yellow-600 text-slate-900 px-4 py-2 rounded-xl font-semibold"
-                    >
-                      Edit
-                    </button>
-                  </div>
                 </div>
               );
             })}
