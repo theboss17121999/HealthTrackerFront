@@ -6,12 +6,23 @@ export default function UserListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState(5);
+  const [sortBy, setSortBy] = useState("uname");
+  const [ascending, setAscending] = useState(true);
+  const [totalPages, setTotalPages] = useState(null);
+  const [totalElements, setTotalElements] = useState(null);
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (
+    pageNumber = page,
+    pageSize = size,
+    sortField = sortBy,
+    sortAsc = ascending
+  ) => {
     const token = localStorage.getItem("token");
 
     if (!token) {
@@ -21,7 +32,17 @@ export default function UserListPage() {
     }
 
     try {
-      const response = await fetch( `${API_BASE_URL}/users`, {
+      setLoading(true);
+      setError("");
+
+      const params = new URLSearchParams({
+        page: pageNumber,
+        size: pageSize,
+        sortBy: sortField,
+        ascending: sortAsc,
+      });
+
+      const response = await fetch(`${API_BASE_URL}/PageUser?${params.toString()}`, {
         headers: getAuthHeaders(token),
       });
 
@@ -35,7 +56,21 @@ export default function UserListPage() {
       }
 
       const data = await response.json();
-      setUsers(data);
+      const usersPayload = Array.isArray(data)
+        ? data
+        : data.content ?? data.users ?? data.items ?? [];
+
+      setUsers(usersPayload);
+      setPage(pageNumber);
+      setSize(pageSize);
+      setSortBy(sortField);
+      setAscending(sortAsc);
+      setTotalPages(!Array.isArray(data) ? data.totalPages ?? null : null);
+      setTotalElements(
+        !Array.isArray(data)
+          ? data.totalElements ?? data.total ?? usersPayload.length
+          : usersPayload.length
+      );
       setActionMessage("");
     } catch (err) {
       console.error(err);
@@ -43,6 +78,36 @@ export default function UserListPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePreviousPage = () => {
+    if (page > 0) {
+      fetchUsers(page - 1, size, sortBy, ascending);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (totalPages !== null) {
+      if (page < totalPages - 1) {
+        fetchUsers(page + 1, size, sortBy, ascending);
+      }
+    } else if (users.length === size) {
+      fetchUsers(page + 1, size, sortBy, ascending);
+    }
+  };
+
+  const handleSortChange = (event) => {
+    const newSort = event.target.value;
+    fetchUsers(0, size, newSort, ascending);
+  };
+
+  const handleOrderToggle = () => {
+    fetchUsers(0, size, sortBy, !ascending);
+  };
+
+  const handleSizeChange = (event) => {
+    const newSize = Number(event.target.value);
+    fetchUsers(0, newSize, sortBy, ascending);
   };
 
   const handleDeleteUser = async (event, userId) => {
@@ -126,6 +191,73 @@ export default function UserListPage() {
               {actionMessage}
             </div>
           )}
+
+          <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto] items-center">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="text-slate-300 text-sm">
+                Sort by
+                <select
+                  value={sortBy}
+                  onChange={handleSortChange}
+                  className="mt-2 w-full rounded-xl bg-slate-800 text-white px-3 py-2"
+                >
+                  <option value="uname">Username</option>
+                  <option value="firstName">First Name</option>
+                  <option value="lastName">Last Name</option>
+                  <option value="email">Email</option>
+                </select>
+              </label>
+
+              <label className="text-slate-300 text-sm">
+                Sort order
+                <button
+                  type="button"
+                  onClick={handleOrderToggle}
+                  className="mt-2 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2"
+                >
+                  {ascending ? "Ascending" : "Descending"}
+                </button>
+              </label>
+
+              <label className="text-slate-300 text-sm">
+                Page size
+                <select
+                  value={size}
+                  onChange={handleSizeChange}
+                  className="mt-2 w-full rounded-xl bg-slate-800 text-white px-3 py-2"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="flex items-center gap-3 justify-end">
+              <button
+                type="button"
+                onClick={handlePreviousPage}
+                disabled={page === 0}
+                className="rounded-xl px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={handleNextPage}
+                disabled={totalPages !== null ? page >= totalPages - 1 : users.length < size}
+                className="rounded-xl px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <p className="text-slate-400 text-sm mt-3">
+            Page {page + 1}
+            {totalPages !== null ? ` of ${totalPages}` : ""}
+            {totalElements !== null ? ` · ${totalElements} total users` : ""}
+          </p>
         </div>
 
         {/* Empty State */}

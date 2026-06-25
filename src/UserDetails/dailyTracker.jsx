@@ -13,6 +13,12 @@ export default function DailyTrackerPage() {
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [customUserId, setCustomUserId] = useState("");
   const [viewingUserId, setViewingUserId] = useState("");
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState(7);
+  const [sortBy, setSortBy] = useState("date");
+  const [ascending, setAscending] = useState(true);
+  const [totalPages, setTotalPages] = useState(null);
+  const [totalRecords, setTotalRecords] = useState(null);
 
   const [formData, setFormData] = useState({
     date: "",
@@ -76,7 +82,13 @@ export default function DailyTrackerPage() {
     setDeleteMessage("");
   };
 
-  const fetchRecords = async (userId = null) => {
+  const fetchRecords = async (
+    userId = null,
+    pageNumber = page,
+    pageSize = size,
+    sortField = sortBy,
+    sortAsc = ascending
+  ) => {
     const token = localStorage.getItem("token");
     const loggedInUsername = localStorage.getItem("username");
     const userToFetch = userId || loggedInUsername;
@@ -87,8 +99,18 @@ export default function DailyTrackerPage() {
     }
 
     try {
+      setLoading(true);
+      setError("");
+
+      const params = new URLSearchParams({
+        page: pageNumber,
+        size: pageSize,
+        sortBy: sortField,
+        ascending: sortAsc,
+      });
+
       const response = await fetch(
-        `${API_BASE_URL}/DailyTracker/${userToFetch}`,
+        `${API_BASE_URL}/DailyTrackerPage/${userToFetch}?${params.toString()}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -97,14 +119,30 @@ export default function DailyTrackerPage() {
       );
 
       if (!response.ok) {
-        // If user doesn't exist or fetch fails, fallback to empty array safely
         setRecords([]);
+        setTotalPages(null);
+        setTotalRecords(null);
         if (userId) setViewingUserId(userId);
         return;
       }
 
       const data = await response.json();
-      setRecords(Array.isArray(data) ? data : []);
+      const recordsPayload = Array.isArray(data)
+        ? data
+        : data.content ?? data.records ?? data.items ?? [];
+
+      setRecords(recordsPayload);
+      setPage(pageNumber);
+      setSize(pageSize);
+      setSortBy(sortField);
+      setAscending(sortAsc);
+      setTotalPages(!Array.isArray(data) ? data.totalPages ?? null : null);
+      setTotalRecords(
+        !Array.isArray(data)
+          ? data.totalElements ?? data.total ?? recordsPayload.length
+          : recordsPayload.length
+      );
+
       if (userId) {
         setViewingUserId(userId);
       } else {
@@ -113,6 +151,8 @@ export default function DailyTrackerPage() {
     } catch (err) {
       console.error(err);
       setRecords([]);
+      setTotalPages(null);
+      setTotalRecords(null);
       setError("Unable to load daily tracker data.");
     } finally {
       setLoading(false);
@@ -282,24 +322,57 @@ export default function DailyTrackerPage() {
   const handleSearchUser = async (e) => {
     e.preventDefault();
     setError("");
-    
-    // Fix: If customUserId is blank or just spaces, fall back to logged-in user data
+
     if (!customUserId.trim()) {
       setViewingUserId("");
-      setLoading(true);
-      await fetchRecords();
+      setPage(0);
+      await fetchRecords(null, 0, size, sortBy, ascending);
       return;
     }
-    
+
+    setPage(0);
     setLoading(true);
-    await fetchRecords(customUserId.trim());
+    await fetchRecords(customUserId.trim(), 0, size, sortBy, ascending);
   };
 
   const handleResetToMyData = () => {
     setCustomUserId("");
     setError("");
-    setLoading(true);
-    fetchRecords();
+    setPage(0);
+    fetchRecords(null, 0, size, sortBy, ascending);
+  };
+
+  const handlePreviousPage = () => {
+    if (page > 0) {
+      fetchRecords(viewingUserId || null, page - 1, size, sortBy, ascending);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (totalPages !== null) {
+      if (page < totalPages - 1) {
+        fetchRecords(viewingUserId || null, page + 1, size, sortBy, ascending);
+      }
+    } else if (records.length === size) {
+      fetchRecords(viewingUserId || null, page + 1, size, sortBy, ascending);
+    }
+  };
+
+  const handleSortChange = (event) => {
+    const newSort = event.target.value;
+    setPage(0);
+    fetchRecords(viewingUserId || null, 0, size, newSort, ascending);
+  };
+
+  const handleOrderToggle = () => {
+    setPage(0);
+    fetchRecords(viewingUserId || null, 0, size, sortBy, !ascending);
+  };
+
+  const handleSizeChange = (event) => {
+    const newSize = Number(event.target.value);
+    setPage(0);
+    fetchRecords(viewingUserId || null, 0, newSize, sortBy, ascending);
   };
 
   const formatDateString = (dateValue) => {
@@ -374,6 +447,76 @@ export default function DailyTrackerPage() {
             </p>
           )}
           {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
+        </div>
+
+        <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 mb-8">
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="text-slate-300 text-sm">
+              Sort by
+              <select
+                value={sortBy}
+                onChange={handleSortChange}
+                className="mt-2 w-full rounded-xl bg-slate-800 text-white px-3 py-2"
+              >
+                <option value="date">Date</option>
+                <option value="fat">Fat</option>
+                <option value="protein">Protein</option>
+                <option value="carbohydrate">Carbs</option>
+                <option value="fiber">Fiber</option>
+              </select>
+            </label>
+
+            <label className="text-slate-300 text-sm">
+              Sort order
+              <button
+                type="button"
+                onClick={handleOrderToggle}
+                className="mt-2 w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2"
+              >
+                {ascending ? "Ascending" : "Descending"}
+              </button>
+            </label>
+
+            <label className="text-slate-300 text-sm">
+              Page size
+              <select
+                value={size}
+                onChange={handleSizeChange}
+                className="mt-2 w-full rounded-xl bg-slate-800 text-white px-3 py-2"
+              >
+                <option value={5}>5</option>
+                <option value={7}>7</option>
+                <option value={10}>10</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-slate-400 text-sm">
+              Page {page + 1}
+              {totalPages !== null ? ` of ${totalPages}` : ""}
+              {totalRecords !== null ? ` · ${totalRecords} records` : ""}
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handlePreviousPage}
+                disabled={page === 0}
+                className="rounded-xl px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={handleNextPage}
+                disabled={totalPages !== null ? page >= totalPages - 1 : records.length < size}
+                className="rounded-xl px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Add Form */}
